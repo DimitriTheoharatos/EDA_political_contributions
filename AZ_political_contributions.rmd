@@ -1,0 +1,718 @@
+Political Contributions in Arizona 
+========================================================
+
+As an avid follower of politics and lifelong resident of Arizona, I decided to explore the political contributions made by Arizonans in the 2016 presidential election cycle. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+# Load all of the packages that you end up using in your analysis in this code
+# chunk.
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(gridExtra)
+library(varhandle)
+library(maps)
+library (mapdata)
+```
+    
+
+```{r echo=FALSE, Load_the_Data}
+# Load in the Data 
+political_contributions <- read.csv("P00000001-AZ.csv")
+
+#only keep the relevant columns to the analysis
+keeps = c('cand_nm', 'contbr_nm', 'contbr_city', 'contbr_occupation', 
+          'contb_receipt_amt', 'election_tp', 'contb_receipt_dt')
+
+pc <- political_contributions[keeps]
+
+```
+
+*The following dataset contains information about Arizona voters and the presidential candidate they donated to.  The information contains instances from both the general and primary elections as well as additional information about the contributor such as the amount they provided, their city, zip code, occupation, and employer.  In addition, a subset of data was extrapolated to explore as  certain information is redundant or not relevant to the analysis.*
+
+# Univariate Plots Section
+
+Running a quick summary on the data, it is clear that the top contenders for the presidency also happened to be the candidates with the largest number of contributions.  This does not much prove much yet, considering the Arizona primary occurs later in the election season and thus several of the contenders had already dropped out or stood very little chance to win.  
+
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+summary(pc)
+```
+
+
+Based on the summary, it looks like there are a couple of issues in the data that we can clean immediately.  Interestingly, the original "contb_receipt_amt" has negative values, which was fixed by simplying setting its value to the absolute value of the original value assuming the negative sign was a typo.  Furthermore, some of the election types specified are neither for the general nor the primary 2016 election cycle, so I removed these entries as well. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+#make contribution amounts all positive
+pc$contb_receipt_amt = abs(pc$contb_receipt_amt)
+
+#create a column that quantifies the number of unique contributions
+pc$contribution_id = seq(1, length(pc$contb_receipt_amt), 1)
+
+pc <- subset(pc, pc$election_tp == "G2016" |
+                   pc$election_tp == "P2016")
+```
+
+Let's investigate the amount of each contribution further.  
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+#note that I exclude the top percent of contributions in this case for plot legibility
+ggplot(data = pc, aes(x = contb_receipt_amt))  + 
+  geom_histogram(binwidth = 20, color = 'black', fill = '#099DD9')  + 
+  scale_x_continuous(limits = c(0, quantile(pc$contb_receipt_amt, 0.99)), 
+  breaks = seq(0,1000,100))
+
+```
+
+
+An overwhelming majority of the contributions were less than $100 in value.  There are also minor spikes at values divisible by 100 (i.e. 400, 500, 1000).
+
+To better illustrate the contribution amount, a larger binwidth can be utilized to effectively show that nearly the entire histogram is within the bin encompassing amounts of 0-100$. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+#change binwidth to extrapolate more information
+ggplot(data = pc, aes(x = contb_receipt_amt))  + 
+  geom_histogram(binwidth = 100, color = 'black', fill = '#099DD9') +
+  scale_x_continuous(limits = c(0, quantile(pc$contb_receipt_amt, 0.99)),breaks = seq(0,1000,100))
+
+```
+
+For a more aesthetic approach, the heavy right skew can be nullified by scaling the x-axis implementing a log scale. This is performed below. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+#scale the x-axis due to the heavy right skew of the histogram
+ggplot(data = pc, aes(x = contb_receipt_amt))  + 
+  geom_histogram(color = 'black', fill = '#099DD9') + 
+  scale_x_log10()
+
+
+```
+
+Scaling the x-axis using a log10 transformation more clearly illustrates the vast concentration of contribution amounts occurring in the regions from ten to a hundred dollars. Now, let's investigate the type of election by comparing the total number of contributions provided to the general election compared to the primary election. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+ggplot(data = pc, aes(x = election_tp)) + geom_bar(fill = "#FF6666")
+
+```
+
+It looks like there are nearly double the contributions for the primary elections versus the general election, likely because of the amount of contributions Bernie Sanders received in the primary (he had over 40,000 contributions as shown in the summary earlier). 
+
+Since so many candidates are included within the dataset, it would be useful to explore a subset of the data that only includes the viable contenders.  Once again, this is useful because Arizona has a relatively late primary season, making the bottom contenders much less likely to receive any financial support this late in the race.  
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+summary(pc$cand_nm)
+
+#isolate the top 6 candidates
+pc_top_6_cand <- subset(pc,pc['cand_nm'] == 'Clinton, Hillary Rodham' | 
+                    pc['cand_nm'] == 'Sanders, Bernard' |
+                    pc['cand_nm'] == 'Trump, Donald J.' | 
+                    pc['cand_nm'] == "Cruz, Rafael Edward 'Ted'" |
+                    pc['cand_nm'] == 'Carson, Benjamin S.' | 
+                    pc['cand_nm'] == 'Rubio, Marco')
+
+#Decided to rename the top six contenders so they can easily fit on any of the graphs
+levels(pc_top_6_cand$cand_nm)[2]= 'Ben Carson'
+levels(pc_top_6_cand$cand_nm)[4] = 'Hillary Clinton'
+levels(pc_top_6_cand$cand_nm)[5] = 'Ted Cruz'
+levels(pc_top_6_cand$cand_nm)[18] = 'Marco Rubio'
+levels(pc_top_6_cand$cand_nm)[19] = 'Bernie Sanders'
+levels(pc_top_6_cand$cand_nm)[22] = 'Donald Trump'
+
+#plot a bar chart to see which candidates received the most contributions
+ggplot(data = pc_top_6_cand, aes(x = cand_nm)) + geom_bar(fill = "blue4")
+
+```
+
+Interestingly, the two Democratic contenders (Hillary Clinton and Bernie Sanders) both have signficantly more contributions than their Republican counterparts even though Arizona is a traditionally conservative state.  
+
+This marked difference between the total amount of contributions for each party piqued my interest, so I decided to get a clearer picture by creating a party variable to add to the dataset. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+#let's investigate which party received more contributions by adding an addtional column
+
+#use a series of ifelse statements to assign a party variable to the data frame
+pc$party <- with(pc,
+   ifelse(cand_nm == "Clinton, Hillary Rodham"|
+          cand_nm == 'Sanders, Bernard'|
+          cand_nm == 'Lessig, Lawrence' |
+          cand_nm == "O'Malley, Martin Joseph" |
+          cand_nm == "Webb, James Henry Jr.", "Democrat",
+   ifelse(cand_nm == 'McMullin, Evan'|
+          cand_nm == 'Johnson, Gary'|
+          cand_nm == 'Stein, Jill' , "Third Party", "Republican")))
+
+#need to convert the column to a factor variable
+pc$party = factor(pc$party) 
+
+#redefine the pc_top_6_cand to also include the party for each contribution
+pc_top_6_cand <- subset(pc,pc['cand_nm'] == 'Clinton, Hillary Rodham' | 
+                    pc['cand_nm'] == 'Sanders, Bernard' |
+                    pc['cand_nm'] == 'Trump, Donald J.' | 
+                    pc['cand_nm'] == "Cruz, Rafael Edward 'Ted'" |
+                    pc['cand_nm'] == 'Carson, Benjamin S.' | 
+                    pc['cand_nm'] == 'Rubio, Marco')
+
+levels(pc_top_6_cand$cand_nm)[2]= 'Ben Carson'
+levels(pc_top_6_cand$cand_nm)[4] = 'Hillary Clinton'
+levels(pc_top_6_cand$cand_nm)[5] = 'Ted Cruz'
+levels(pc_top_6_cand$cand_nm)[18] = 'Marco Rubio'
+levels(pc_top_6_cand$cand_nm)[19] = 'Bernie Sanders'
+levels(pc_top_6_cand$cand_nm)[22] = 'Donald Trump'
+
+ggplot(data = pc, aes(x = party)) + geom_bar(color = 'black',fill = '#099DD9')
+
+```
+
+In total, the number of contributions to Democratic candidates essentially doubles that of their Republican counter parts with 3rd party candidates lagging far behind. Note, this is just the total number of contributions, not taking into account the actual contribution amounts.  This will be further investigated in the bivariate section. 
+
+
+# Univariate Analysis
+
+The dataset details individual contributions made to politicians by Arizonans in the 2016 election cycle and provides several pieces of information for each of those unique contributions. This information includes the candidate, contribution amount, date of the contribution, type of election (primary or general) as well as the contributor and their corresponding city, zip code, occupation, and company.For univariate analysis, the features of interest to me were the contribution amounts, the candidates and their respective party, and the election type (general vs primary).  The only new variable I created was the candidate's party. 
+
+Alternative modifications I made to the data were to create data frames only for the top candidates since several of the candidates received virtually no contributions and congested the visualizations, and getting rid of some of the features that were either redundant or not highly useful such as id or memo information. One of the more unusual findings was the fact that Democratic candidates received more than twice as many contributions as their Republican counterparts.  This is surprising both because Arizona typically leans heavily red and there were several more Republican candidates in the race.  There were no steps to change the structure of the data for univariate analysis. 
+
+# Bivariate Plots Section
+
+Piggybacking off of the univariate analysis involving the party and total number of contributions, it would be interesting to see the actual monetary amount as a function of party association.  To do this, the average contribution amount can be found grouped by party. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+#investigate the average contribution by party
+pc_by_party <- group_by(pc, party)
+pc_mp_by_party <- summarise(pc_by_party, mean_contrb_amt = mean(contb_receipt_amt), 
+                            n = n(),
+                            total = n * mean_contrb_amt)
+ggplot(data = pc_mp_by_party, aes(x = party, y = mean_contrb_amt)) + 
+        geom_col(color = 'black', fill = "#FF6666") 
+```
+
+The Republicans have nearly triple the average contribution amount compared to Democrats, with 3rd party candidates faring even higher.  This results in the total contribution amount by the Republicans higher than the Democrats as depicted by the total contributions plot below. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+ggplot(data = pc_mp_by_party, aes(x = party, y = total)) + 
+        geom_col(color = 'black', fill = "purple2")
+```
+
+It would be useful to visualize this relationship as a histogram to better understand the distribution of each party's contributors.
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+ggplot(data = pc, aes(x = contb_receipt_amt))  + 
+      geom_histogram(color = 'black', fill = '#099DD9') + 
+      scale_x_log10() + 
+      facet_wrap(~party, scales = 'free_y')
+```
+
+The plot above is difficult to interpret since the y-axis values are on different scales.  This could be solved by condensing all of the plots onto a single diagram replicated below. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+#plot a histogram that differentiates based on party affiliation
+ggplot(data = pc, aes(x = contb_receipt_amt)) + 
+      geom_histogram(aes(fill = party)) + 
+      scale_x_log10() +
+      scale_fill_manual(values = c("blue", "red", "green")) 
+
+```
+
+As mentioned before, there are clearly more contributions made by Democrats in total, but the heavy weighting of Republican contributions towards higher amounts gives them an edge in total contributions.  Notice that 3rd party candidates are barely even visible on the graph since they have such few contributions relative to the two major parties. Let's look into the individual candidates now rather than the parties as a whole. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+#plot the top six candidates 
+ggplot(data = pc_top_6_cand, aes(x = contb_receipt_amt))  + 
+      geom_histogram(color = 'black', fill = '#099DD9') + 
+      scale_x_log10() + 
+      facet_wrap(~cand_nm, scales = 'free_y')
+
+```
+
+  It appears that Bernie Sanders and Hillary CLinton have slightly lower contribution values compared to the rest of the field and Marco Rubio seems to have had higher contribution amounts on average.  This can be confirmed implementing a boxplot. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+ggplot(data = pc_top_6_cand, aes(x = cand_nm, y = contb_receipt_amt)) +
+        geom_boxplot(fill = 'cyan') + coord_cartesian(ylim = c(0,300))
+
+```
+
+As expected, it looks like the median contribution amount received is lowest for Bernie Sanders with Hillary Clinton being a close second and Marco Rubio being the highest of the top contenders.  
+
+It might be useful to compare the contribution amounts for the election type as well.  This can be done using boxplots shown below. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+ggplot(data = pc, aes(x = election_tp, y = contb_receipt_amt)) + 
+        geom_boxplot(fill = 'magenta') + 
+        coord_cartesian(ylim = c(0,200))
+
+```
+
+The median values for both the general and primary elections are essentially the same, with the general election having a much higher interquartile range. Since the general is of larger import, it would make intuitive sense for the average contribution to be higher, hinted at by the significant right skewness of the general election's distribution.  This can be confirmed with a bar chart comparing the mean contributions for each election type. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+#group data frame by election type
+pc_by_election_type <- group_by(pc, election_tp)
+
+pc_mp_by_election_type <- summarise(pc_by_election_type, 
+                                      mean_contrb_amt = mean(contb_receipt_amt))
+
+ggplot(data = pc_mp_by_election_type, aes(x = election_tp, y = mean_contrb_amt)) +
+        geom_col(color = 'black', fill = "cyan") 
+
+```
+
+Based on the above analysis, it seems the general election does indeed have a higher average contribution amount (by $15.40 or approximately 17%).  
+
+Most of the analysis so far has revolved around the party of the candidate, the election type, or the candidates themselves.  Let's change directions a bit and look into the information of the contributors instead. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+summary(pc$contbr_city)
+
+#filter out only the cities with the highest number of contributions 
+pc_top_6_cities <- subset(pc,pc['contbr_city'] == 'TUCSON' | 
+                            pc['contbr_city'] == 'PHOENIX' |
+                            pc['contbr_city'] == 'SCOTTSDALE' | 
+                            pc['contbr_city'] == 'MESA' |
+                            pc['contbr_city'] == 'TEMPE' | 
+                            pc['contbr_city'] == 'CHANDLER')
+
+ggplot(data = pc_top_6_cities, aes(x = contbr_city, y = contb_receipt_amt)) + 
+        geom_boxplot(fill = 'deepskyblue') + 
+        coord_cartesian(ylim = c(0,200))
+
+```
+
+
+Looking at the cities with at least 5000 individual contributions, it looks like Scottsdale has nearly double the median contribution amount in comparison to other major cities.  Scottsdale also happens to be the wealthiest city in Arizona, so it makes sense individuals are able to donate more to their preferred candidate. It would also be interesting to see the number of contribution for each city separated by party.  This will give a sense of the party makeup for each major city within Arizona.  
+
+```{r}
+
+ggplot(data = pc_top_6_cities, aes(fill = party,x = contbr_city)) +
+        geom_bar(position = "dodge") + scale_fill_manual(values =c('blue' ,'red', 'green'))
+ 
+```
+      
+Amazingly, it seems that Democrats greatly outnumber Republicans in terms of number of contributions in every major city. Rather than looking at the residence for each contributor, let's look more into their occupations to see if that has any impact on their contribution amount. Since there are so many available occupations, it seemed reasonable to split the occupation status into three general categories: employed, unemployed, and retired.  
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+#look into the impact of employment on contribution amount
+pc_unemployed <- subset(pc, pc$contbr_occupation == "NOT EMPLOYED")
+pc_retired <- subset(pc, pc$contbr_occupation == "RETIRED")
+pc_employed <- subset(pc, pc$contbr_occupation != "NOT EMPLOYED" & 
+                        pc$contbr_occupation != "RETIRED" &
+                        pc$contbr_occupation != "")
+
+#set the occupation in the employed dataframe to a generic employed to allow for comparison
+pc_employed$contbr_occupation = "EMPLOYED"
+
+#create various boxplots for each employment status: unemployed, employed, and retired 
+plot_unemployed = ggplot(data = pc_unemployed, 
+                          aes(x = contbr_occupation, y = contb_receipt_amt)) + 
+                          geom_boxplot(fill = 'gold2') + 
+                          coord_cartesian(ylim = c(0,100))
+
+plot_retired = ggplot(data = pc_retired, 
+                        aes(x = contbr_occupation, y = contb_receipt_amt)) +
+                        geom_boxplot(fill = 'gold2') + 
+                        coord_cartesian(ylim = c(0,100))
+
+plot_employed = ggplot(data = pc_employed, 
+                        aes(x = contbr_occupation, y = contb_receipt_amt)) +
+                        geom_boxplot(fill = 'gold2') +
+                        coord_cartesian(ylim = c(0,100))
+
+grid.arrange(plot_unemployed, plot_retired, plot_employed, ncol = 3) 
+
+
+```
+
+An initial glance at the boxplots for employment status clearly shows a higher median for the retired population, but the difference in median between those unemployed and employed are nearly the same.  It would be useful to look into the mean as well to get a better grasp of the contribution amounts from each of these groups. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+cat("Employed Mean Contribution: ", mean(pc_employed$contb_receipt_amt))
+cat("Unemployed Mean Contribution: ",mean(pc_unemployed$contb_receipt_amt))
+cat("Retired Mean Contribution: ",mean(pc_retired$contb_receipt_amt))
+```
+
+# Bivariate Analysis
+
+In this section, I expanded on some of the univariate analysis by calculating significant statistical properties such as the mean of the contribution amount in order to compare among the candidates, parties, occupation status, and contribution city.  Interestingly, the mean contribution amount for third party candidates was significantly higher in comparison to the two major parties.  These contributions still had little impact however considering the two major parties (Republicans and Democrats) had vastly more contributors. In addition, Republicans had a much higher average contribution amount than the Democrats, which offset the fact that they were outnumbered in total number of contributors in every single major city.   
+
+I created a new variable based on the occupation status to determine whether or not individuals were retired, employed, or unemployed.  I did this because there were much too many occupations to keep track of and aggregating the data would allow holistic analysis on employment status and its correlation to contribution amounts.  There was a strong positive correlation between employment status and the average contribution amount (as expected).
+
+
+# Multivariate Plots Section
+
+Building on the grouped box plot in the previous section that illustrated the number of contributions for each city broken up by party, I thought it would be useful to find the total contributed by each city rather than just the number of contributions. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+#group the top cities by each city
+pc_by_city <- group_by(pc_top_6_cities, contbr_city)
+
+#break each party into distinct dataframes to collect statistics for each group
+pc_by_city_repubs <- subset(pc_by_city, 
+                            pc_by_city$party == "Republican")
+
+pc_by_city_dems <- subset(pc_by_city, 
+                          pc_by_city$party == "Democrat")
+
+pc_by_city_third_party <- subset(pc_by_city, 
+                                 pc_by_city$party != "Republican" & pc_by_city$party != "Democrat")
+
+#find relevant statistics for each party
+pc_mp_by_city_repubs <- summarise(pc_by_city_repubs, 
+                            mean_contrb_amt = mean(contb_receipt_amt), 
+                            n = n(),
+                            total = mean_contrb_amt * n)
+pc_mp_by_city_repubs$party = "Republican"
+
+pc_mp_by_city_dems <- summarise(pc_by_city_dems, 
+                            mean_contrb_amt = mean(contb_receipt_amt),
+                            n = n(),
+                            total = mean_contrb_amt * n)
+pc_mp_by_city_dems$party = "Democrat"
+
+pc_mp_by_city_third_party <- summarise(pc_by_city_third_party, 
+                            mean_contrb_amt = mean(contb_receipt_amt),
+                            n = n(),
+                            total = mean_contrb_amt * n)
+pc_mp_by_city_third_party$party = "Third Party"
+
+#condense all of the statistical summaries into one data frame to put into a plot
+pc_mp_by_city_party <- merge(pc_mp_by_city_dems, 
+                             merge(pc_mp_by_city_repubs,pc_mp_by_city_third_party,all=TRUE),
+                             all=TRUE)
+
+ggplot(data = pc_mp_by_city_party, aes(fill = party,x = contbr_city, y = total)) +
+        geom_bar(position = "dodge", stat = 'identity') +
+        scale_fill_manual(values =c('blue' ,'red', 'green'))
+ 
+```
+
+Even though the Democrat contributions vastly outpaced those of Republicans, the above plot demonstrates that the total amount of contribution money tends to favor the Republicans.  This can be visualized and confirmed by visualizing the distributions for each city as well. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+ggplot(data =pc_top_6_cities, aes(x = contb_receipt_amt)) + 
+      geom_histogram(aes(fill = party)) + 
+      scale_x_log10() +
+      scale_fill_manual(values = c("blue", "red", "green")) + 
+      facet_wrap(~contbr_city, scales = 'free_y')
+```
+
+As illustrated above, though the Democrats encompass much more area on the histograms, the left-skewed distribution behavior of the Republican contributions shows why they actually have an advantage when it comes to the total amount in campaign contributions. 
+
+Apart from the distinction between the implied time difference between the primary and general presidential elections, most of the analysis thus far has been static in nature- i.e. with no temporal component.  It would be useful to integrate the previous analysis with a time variable to take into account the dependency of campaign contributions on which phase the election season is in.  This analysis is performed below. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE, Multivariate_Plots}
+
+#convert the date variable into a date rather than a factor to allow for continuous analysis
+pc$contb_receipt_dt <-as.Date(as.character(pc$contb_receipt_dt),  
+                                format = "%d-%b-%y")
+
+#only include valid data entries that go to either the general or primary election
+pc_gen_primary <- subset(pc,pc$election_tp == 'G2016' | pc$election_tp == 'P2016')
+
+#only include values in which the primary season has officially started (i.e. March 1st 2015)
+pc_by_date = subset(pc_gen_primary, pc_gen_primary$contb_receipt_dt >= "2015-03-01" & 
+                                    pc_gen_primary$contb_receipt_dt <= "2016-11-08" )
+
+#examine the total contribution amounts received by each party as a function of time 
+ggplot(data = pc_by_date, aes(x =contb_receipt_dt, y = contb_receipt_amt)) + 
+        geom_line(aes(color = party),stat = 'summary', fun.y = sum) + 
+        scale_x_date(date_labels = "%b-%Y") + 
+        scale_color_manual(values=c("blue","red","green"))
+```
+
+The first investigation into the sum of the campaign contributions is a bit noisy making it difficult to extrapolate much value from it.  Let's investigate the median of the contributions instead. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+#examine the total contribution amounts received by each party as a function of time 
+ggplot(data = pc_by_date, aes(x =contb_receipt_dt, y = contb_receipt_amt)) + 
+        geom_line(aes(color = party),stat = 'summary', fun.y = median) + 
+        scale_x_date(date_labels = "%b-%Y") + 
+        scale_color_manual(values=c("blue","red","green"))
+
+```
+
+Similarly, breaking up each individual contribution by its median demonstrates highly variable behavior.  It is likely that since each day has a limited number of contribution samples, the median of each sample varies greatly.  One way to alleviate this issue is by smoothing out the samples and accepting more bias in the model. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+#the data is a bit noisy, lets try and smooth it 
+#need to first convert each date into days from some initial point (2/28/2015)
+#will allow for additional computation performed on the days
+
+#define variable as beginning of election season
+election_start = as.Date("2015-03-02")
+pc_by_date$election_season_tenure <- as.numeric(pc_by_date$contb_receipt_dt - election_start)
+
+
+ggplot(data = pc_by_date, 
+        aes(x =30*round(election_season_tenure/30), y = contb_receipt_amt)) + 
+        geom_line(aes(color = party),stat = 'summary', fun.y = sum) + 
+        scale_color_manual(values=c("blue","red","green"))
+
+```
+
+Smoothing the summation of campaign contributions over 30 day increments demonstrates more useful analysis.  There is a clear trend upwards as the elections near closer.  It should be mentioned that the primary election in Arizona is on day 386 in the graph above whereas the general election date is the final data point. Let's do the same analysis using the median. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+ggplot(data = pc_by_date, 
+        aes(x =30*round(election_season_tenure/30), y = contb_receipt_amt)) + 
+        geom_line(aes(color = party),stat = 'summary', fun.y = median) + 
+        scale_color_manual(values=c("blue","red","green"))
+
+```
+
+All three parties exhibit similar starting behavior taking the mean over 30 day periods.  Initially, the median is high and then rapidly decreases until a couple months before the primary.  This could potentially stem from the first of the donors being more passionate about their respective candidate. There is still high variance for third party candidates, but this makes sense since they receive signficantly fewer donations in comparison to the two major parties. Lets perform a similar analysis breaking down by the top candidates. 
+
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+#convert the receipt date variable to a date in the top six candidates data frame
+pc_top_6_cand$contb_receipt_dt <-as.Date(as.character(pc_top_6_cand$contb_receipt_dt),  
+                                format = "%d-%b-%y")
+#only include start of primary season and dates up to the general election
+pc_by_date_top_6_cand <- subset(pc_top_6_cand, pc_top_6_cand$contb_receipt_dt >= "2015-03-01" & 
+                                    pc_top_6_cand$contb_receipt_dt <= "2016-11-08" )
+
+#plot the summation of the contributions by each top political candidate
+ggplot(data = pc_by_date_top_6_cand, aes(x =contb_receipt_dt, y = contb_receipt_amt)) + 
+        geom_line(aes(color = cand_nm),stat = 'summary', fun.y = sum)
+```
+
+Once again, without smoothing, the plot is a bit too noisy to extrapolate anything useful from it.  Smoothing the function over a thirty day period should reduce this variance. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+election_tenure = pc_by_date_top_6_cand$contb_receipt_dt - election_start
+pc_by_date_top_6_cand$election_season_tenure <- as.numeric(election_tenure)
+
+ggplot(data = pc_by_date_top_6_cand, 
+        aes(x =30*round(election_season_tenure/30), y = contb_receipt_amt)) + 
+        geom_line(aes(color = cand_nm),stat = 'summary', fun.y = sum)   
+
+```
+
+Smoothing over a thirty day period enables much cleaner results.  It is clear who the final two contenders were by their continuous reception of donations (Trump and Clinton).   Furthermore, it demonstrates the rise and fall of each of the top candidates by their spikes in donations and their eventual downfall.  
+
+Working in the temporal domain compelled me to also invesitgate any geographical correlations in the data as well.  
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+#group the top cities data frame
+pc_top_6_cities_grouped <- group_by(pc_top_6_cities, contbr_city)
+# 
+# #isolate Democratic contributors
+pc_cities_dems <- subset(pc_top_6_cities_grouped, 
+                         pc_top_6_cities_grouped$party == "Democrat")
+# #isolate Republican contributors
+pc_cities_repubs <- subset(pc_top_6_cities_grouped, 
+                           pc_top_6_cities_grouped$party == "Republican")
+# 
+# #find the number of contributors as well as the total in contribution amounts for both parties
+pc_summary_by_city_dems <- summarise(pc_cities_dems, 
+                                     mean_contrb_amt = mean(contb_receipt_amt),
+                                     n = n(), 
+                                     total = n * mean_contrb_amt)
+# 
+pc_summary_by_city_repubs <- summarise(pc_cities_repubs, 
+                                       mean_contrb_amt = mean(contb_receipt_amt),
+                                       n = n(), 
+                                       total = n * mean_contrb_amt)
+# 
+# #create data frame to compare the number of contributors in each party for each of the top 6 cities
+pc_contributors_by_city <- as.data.frame(
+                                    cbind(as.character(pc_summary_by_city_dems$contbr_city[0:6]),
+                                    pc_summary_by_city_dems$n,pc_summary_by_city_repubs$n)) 
+# 
+# #create data frame to compare the total in contributions for each party in each of the top 6 cities
+pc_total_contbr_by_city <- as.data.frame(
+                                    cbind(as.character(pc_summary_by_city_dems$contbr_city[0:6]),
+                                    pc_summary_by_city_dems$total,pc_summary_by_city_repubs$total))
+# 
+# #use this library to unfactor a variable so it goes into a usable numeric form
+
+# 
+# #label columns for each newly constructed data frame
+colnames(pc_contributors_by_city) =  c("City", "Dem", "Rep")
+colnames(pc_total_contbr_by_city) =  c("City", "Dem", "Rep")
+# 
+# #unfactor and change the variables to numerics
+pc_contributors_by_city$Dem = unfactor(pc_contributors_by_city$Dem)
+pc_contributors_by_city$Rep = unfactor(pc_contributors_by_city$Rep)
+#
+pc_total_contbr_by_city$Dem = unfactor(pc_total_contbr_by_city$Dem)
+pc_total_contbr_by_city$Rep = unfactor(pc_total_contbr_by_city$Rep)
+# 
+# 
+# #find the ratios for the number of contributors and total in contributions
+pc_contributors_by_city$ratio <- pc_contributors_by_city$Dem / pc_contributors_by_city$Rep
+pc_total_contbr_by_city$ratio <- pc_total_contbr_by_city$Dem / pc_total_contbr_by_city$Rep
+
+pc_total_contbr_by_city$ratio <- ifelse(pc_total_contbr_by_city$ratio < 1,
+                                    -1 / pc_total_contbr_by_city$ratio,
+                                          pc_total_contbr_by_city$ratio)
+
+pc_total_contbr_by_city$difference <- abs(pc_total_contbr_by_city$Dem - pc_total_contbr_by_city$Rep)
+       
+# 
+# 
+
+pc_top_6_cities <- subset(pc,pc['contbr_city'] == 'TUCSON' | 
+                            pc['contbr_city'] == 'PHOENIX' |
+                            pc['contbr_city'] == 'SCOTTSDALE' | 
+                            pc['contbr_city'] == 'MESA' |
+                            pc['contbr_city'] == 'TEMPE' | 
+                            pc['contbr_city'] == 'CHANDLER')
+
+ggplot(data = pc_top_6_cities, aes(x = contbr_city, y = contb_receipt_amt)) + 
+        geom_boxplot(fill = 'deepskyblue') + 
+        coord_cartesian(ylim = c(0,200))
+pc_contributors_by_city$lat <- c(33.13, 33.4, 33.57, 33.67,33.39, 32.15)
+pc_contributors_by_city$long <- c(-110.11, -111.72, -112.09, -111.82, -111.93, -110.87)
+pc_total_contbr_by_city$lat <- c(33.13, 33.4, 33.57, 33.67,33.39, 32.15)
+pc_total_contbr_by_city$long <- c(-110.11, -111.72, -112.09, -111.82, -111.93, -110.87)
+# 
+#create map
+#install.packages(c("maps", "mapdata"))
+library(maps)
+library (mapdata)
+states <- map_data("state")
+counties <- map_data("county")
+AZ <- subset(states, region %in% "arizona")
+AZ_county <- subset(counties, region == "arizona")
+az_base <- ggplot(data = AZ, mapping = aes(x = long, y = lat, group = group)) + 
+   coord_fixed(1.3) + 
+   geom_polygon(color = "black", fill = "gray") 
+ 
+az_base_with_counties <- az_base + geom_polygon(data = AZ_county, 
+                                                fill = NA, color = "white") +
+                                    geom_polygon(color = "black", fill = NA)  
+                                                                                                                                              
+az_base_with_counties + geom_point(data = pc_total_contbr_by_city, 
+                                   aes(color=ratio, group=NULL, x=long, y=lat), 
+                                   size=pc_total_contbr_by_city$difference/10000, 
+                                   alpha = 0.3)  + 
+                        scale_color_gradient(low = "red", high = "blue")
+
+```
+
+Ultimately, I created a plot where each bubble is proprtional to the total difference in contribution amounts between the two major parties and the color of the bubble is determined by a ratio of the total number of contributors for each party.  It ended up being a bit congested and not exactly what I had intended, but it was a learning exercise nonetheless. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+library(forcats)
+ggplot(pc_total_contbr_by_city, aes(x = fct_reorder(City, difference),
+                                y = c(1,1,1,1,1,1), color = ratio, 
+                                order = pc_total_contbr_by_city$difference)) + 
+              geom_point(size = pc_total_contbr_by_city$difference / 25000, 
+                         alpha = 0.8) + 
+              scale_color_gradient(low = "red", high = "blue") + 
+              scale_y_continuous(labels = NULL, breaks = NULL) +  
+              theme(axis.title.y=element_blank()) + 
+              coord_fixed(ratio = 2) 
+```
+
+Instead of using the bubbles mapped onto a map of Arizona, I instead plotted them side-by-side so an actual estimate could be made of the relative difference in total contribution amounts by city.  It looks like Tuscon and Scottsdale were the biggest net contributors for the Democrats and Republicans, respectively. 
+
+Finally, since a time variable has been instantiated, scatterplots of each contribution can be performed. 
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+#use ggplot to generate scatter plot with additional lines and labels for visualization legibility
+ggplot(pc_by_date, aes(x=contb_receipt_dt, y=contb_receipt_amt)) + 
+      geom_jitter(aes(color = party),alpha = 0.1) + 
+      scale_color_manual(values = c("blue", "red", "green"))  + 
+      geom_hline(aes(yintercept=5400), linetype = 'dashed', color = 'black') +
+      geom_text(data=data.frame(x=as.Date("2015-04-15"),y=5400), aes(x, y), 
+          label="Household Max", vjust=-1, size = 3, 
+          fontface = 'bold', color = 'black', family= 'Courier') +
+      geom_hline(aes(yintercept=2700), linetype = 'dashed') + 
+      geom_text(data=data.frame(x=as.Date("2015-04-15"),y=2700), aes(x, y), 
+          label="Individual Max", vjust=-1, size = 3, 
+          fontface = 'bold', family = 'Courier') + 
+      scale_y_log10(breaks = c(1,5,10,25,50,100,250,500,1000,2700,5400), 
+                    limits = c(1,5500))
+
+```
+
+
+# Multivariate Analysis
+
+The multivariate analysis demonstrated several other relationships among the variables that were not apparent in earlier univariate or bivariate analysis.  First, it is clear that even though Democrats had more contributions, the Republicans offset this with higher contributions leading to higher fundraising for their respective candidates.  Furthermore, by including a time variable, it became clear that contributions increased greatly as the general election approached.  One interesting phenomenon was that Republicans made a much higher number of contributions early on in the election season (2015).  This may derive from the fact that the primary was wide open, with nearly every prominent Republican making a case as to why they should be the party's respective candidate.  On the other hand, most Democrats generally accepted that Hilary Clinton was going to be their torch bearer and there was no need to fundraise so early on in the election season.  
+
+
+
+# Final Plots and Summary
+
+After performing univariate, bivariate, and multivariate analysis, I compiled three of the most informative graphics produced and provided further analysis beneath it.  
+
+### Plot One
+```{r echo=FALSE, Plot_One}
+ggplot(data = pc_mp_by_city_party, aes(fill = party,x = contbr_city, y = total)) +
+        geom_bar(position = "dodge", stat = 'identity') + 
+        scale_fill_manual(values =c('blue' ,'red', 'green')) + 
+        labs(x = "City", 
+            y = "Total Contribution Amount ($)", 
+            title = "Total Contributions for Major Cities by Party Identification")
+```
+
+This plot is useful because it neatly illustrates major cities in Arizona and the difference in total contributions among them divided by each party.  In the wealthier, Suburbanite areas (Scottsdale, Mesa), Republicans vastly outspent Democrats.  In the urban and diverse regions (Phoenix, Tempe, Tucson), Democrats were able to rake in more contribution dollars.  The graph also demonstrates the massive disparity in funding between the two major parties and any third party contenders. 
+
+### Plot Two
+```{r echo=FALSE,message = FALSE, warning = FALSE, Plot_Two}
+
+ggplot(data = pc_by_date_top_6_cand, 
+        aes(x =30*round(election_season_tenure/30), y = contb_receipt_amt)) + 
+        geom_line(aes(color = cand_nm),stat = 'summary', fun.y = sum) + 
+        labs(x = "Election Season Tenure (days)",
+             y = "Total Contribution Amount ($)", 
+             title = "  Total Contributions for Top Presidential Contenders") + 
+        geom_vline(aes(xintercept=386), linetype = 'dashed', color = 'red') + 
+        geom_text(data=data.frame(x=338,y=375000), aes(x, y), 
+          label="AZ Primary", vjust= -5 , size = 3,
+          fontface = 'italic', color = 'red')
+```
+
+
+This time series plot of contribution amounts is also packed with information.  It demonstrates the gradual increase and decrease of each candidate, which is closely linked to the rise and fall of each of their respctive election runs.  At one point (~day 400 of the election season), Bernie Sanders was bringing in the most amount of campaign contributions, suggesting that his growing number of supporters believed he had a decent chance of securing the nomination.  Donald Trump's trajectory is also interesting as he received nearly no donations until after the primary election (as he had intended) but still managed to secure the nomination, upending decades of political wisdom that contributions are necessary for victory.  With the addition of the AZ primary vertical line, the plot also demonstrates that once the primary was over, only the top two candidates for each party remained as viable options for campaign contributors as their values skyrocketed.  
+
+### Plot Three
+```{r echo=FALSE,message = FALSE, warning = FALSE, Plot_Three}
+
+ggplot(pc_by_date, aes(x=contb_receipt_dt, y=contb_receipt_amt)) + 
+      geom_jitter(aes(color = party),alpha = 0.1) + 
+      scale_color_manual(values = c("blue", "red", "green"))  + 
+      geom_hline(aes(yintercept=5400), linetype = 'dashed', color = 'black') +
+      geom_text(data=data.frame(x=as.Date("2016-08-15"),y=5400), aes(x, y), 
+          label="Household Max", vjust=-1, size = 3, 
+          fontface = 'italic', color = 'black', family= 'Courier') +
+      geom_hline(aes(yintercept=2700), linetype = 'dashed') + 
+      geom_text(data=data.frame(x=as.Date("2016-08-15"),y=2700), aes(x, y), 
+          label="Individual Max", vjust=-1, size = 3, 
+          fontface = 'italic', family = 'Courier') + 
+      scale_y_log10(breaks = c(1,5,10,25,50,100,250,500,1000,2700,5400), 
+                    limits = c(1,5500)) + 
+      scale_x_date(date_breaks = "4 months") + 
+      labs(x = "Date of Campaign Contribution", 
+           y = "Campaign Contribution Amount ($)",
+           title = "Individual Contributions over Time by Party Identification")
+```
+
+
+This final plot generates several interesting tidbits of information.  First, it is clear that there are certain contribution amounts that are donated more often than others such as the maximum contribution amounts allowed in an election (2700 and 5400 for an individiual and couple) as well as other nice, round numbers (50,100,1000,2000).  Furthermore, it looks like Republicans were initially outspending Democrats early on in the election season but Democrats began to outpace the Republicans starting in 2016.  This may derive from the fact that there were so many viable Republican contenders early on in the election cycle whereas the Democrats only really had two (or even one some would argue).  Also, the plot becomes denser as the gneneral election nears, meaning several more contributions are being made. Lastly, once again this plot further deepens the notion that Democrats contributed more but made smaller contributions to their respective candidates and that Third Party contributions are virtually nonexistent in comparison to the two major parties.   
+
+# Reflection
+Analyzing the Arizona contributions made to the 2016 presidential election was both challenging and intriguing.  Utilizing the ggplot functionality was initially a difficult task, but eventually proved itself to be a vastly powerful too for data visualizations. It was also difficult to conceptualize best ways to visualize the individual data points since there were nearly 150,000 contributions made.  To resolve this, I typically lessened the data set size by focusing on top cities and candidates.  
+
+Understanding what to analyze went relatively well.  With a basic understanding of election politics and the nature of political parties, I was able to quickly decide on the best features to investigate to visualize their impact.  Furthermore, as an Arizona resident, I understand the general make up of each city based on geography and diversity in each city, so I could couple this advantage with my poltical knowledge to improve my investigative abilities.  
+
+I was shocked by the number of Democratic contributors in the election.  Arizona leans heavily conservative and it seems counterintuitive that a state with a Republican legislature, Governorship, and both U.S. Senators would have strong a strong contributing base for the Democrats.  This may hint at the changing demographics of the state.  That would be a useful exercise for future iterations of this project- incorporating data on diversity and changing demographics to understand its impact on campaign contributions.  In addition, it would also be useful to examine more of the data that did not go to a top presidential contender or did not originate from a major city.  This would lead to a wider understanding of the nature of Arizona and their campaign contributions.  
