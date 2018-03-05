@@ -1,3 +1,11 @@
+---
+title: "Political Contributions in Arizona "
+author: "Dimitri Theoharatos"
+output:
+      html_document:
+        keep_md: true
+---
+
 Political Contributions in Arizona 
 ========================================================
 
@@ -686,7 +694,8 @@ ggplot(data = pc_by_date_top_6_cand,
 This time series plot of contribution amounts is also packed with information.  It demonstrates the gradual increase and decrease of each candidate, which is closely linked to the rise and fall of each of their respctive election runs.  At one point (~day 400 of the election season), Bernie Sanders was bringing in the most amount of campaign contributions, suggesting that his growing number of supporters believed he had a decent chance of securing the nomination.  Donald Trump's trajectory is also interesting as he received nearly no donations until after the primary election (as he had intended) but still managed to secure the nomination, upending decades of political wisdom that contributions are necessary for victory.  With the addition of the AZ primary vertical line, the plot also demonstrates that once the primary was over, only the top two candidates for each party remained as viable options for campaign contributors as their values skyrocketed.  
 
 ### Plot Three
-```{r echo=FALSE,message = FALSE, warning = FALSE, Plot_Three}
+```{r}
+# message = FALSE, warning = FALSE, Plot_Three}
 
 ggplot(pc_by_date, aes(x=contb_receipt_dt, y=contb_receipt_amt)) + 
       geom_jitter(aes(color = party),alpha = 0.1) + 
